@@ -53,32 +53,43 @@ enum Commands {
         #[arg(short, long, require_equals = true)]
         output: Option<PathBuf>,
     },
+    /// Uploads a file to Discord
     Upload {
+        /// File to be uploaded
         file: PathBuf,
 
+        /// Optionally use a token for this one time
         #[arg(short, long, require_equals = true)]
         token: Option<String>,
 
+        /// Optionally use a channel for this one time
         #[arg(short, long, require_equals = true)]
         channel: Option<u64>,
     },
+    /// Downloads a file from Discord
     Download {
+        /// Message ID for the file
         message_id: u64,
 
         /// Specifies the output file where the assembled file will be written to
         #[arg(short, long, require_equals = true)]
         output: Option<PathBuf>,
 
+        /// Optionally use a token for this one time
         #[arg(short, long, require_equals = true)]
         token: Option<String>,
 
+        /// Optionally use a channel for this one time
         #[arg(short, long, require_equals = true)]
         channel: Option<u64>,
     },
+    /// Lists all the files uploaded to the channel
     List {
+        /// Optionally use a token for this one time
         #[arg(short, long, require_equals = true)]
         token: Option<String>,
 
+        /// Optionally use a channel for this one time
         #[arg(short, long, require_equals = true)]
         channel: Option<u64>,
     },
