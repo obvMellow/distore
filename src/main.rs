@@ -6,6 +6,7 @@ mod commands;
 mod config;
 
 #[derive(Parser, Debug)]
+#[command(version, about)]
 struct Args {
     #[command(subcommand)]
     command: Commands,
