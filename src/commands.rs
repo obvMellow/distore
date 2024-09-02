@@ -33,9 +33,9 @@ pub fn config(global: bool, key: String, val: String, dir: Option<PathBuf>) -> R
     fs::create_dir_all(&path).context("Failed to create config directory")?;
     path.push("distore.ini");
 
-    ConfigValue::write_to_path(&path.as_path(), &conf, scope)
+    ConfigValue::write_to_path(path.as_path(), &conf, scope)
         .context("Failed to write to the config file")?;
-    println!("Set \"{}\" to \"{}\"", conf.to_string(), conf.inner());
+    println!("Set \"{}\"", conf);
     Ok(())
 }
 
@@ -50,8 +50,8 @@ pub fn get_config(global: bool, dir: Option<PathBuf>) -> Result<()> {
         false => crate::config::ConfigValue::get_current_config(&path)?,
     };
 
-    println!("Token: {}", token);
-    println!("Channel: {}", channel);
+    println!("{}", token);
+    println!("{}", channel);
     Ok(())
 }
 
@@ -293,7 +293,7 @@ pub async fn download(
     );
     let name = content
         .split("\n")
-        .nth(0)
+        .next()
         .unwrap()
         .split("=")
         .nth(1)
@@ -388,7 +388,7 @@ pub async fn list(token: Option<String>, channel: Option<u64>, dir: Option<PathB
         );
         let name = content
             .split("\n")
-            .nth(0)
+            .next()
             .unwrap()
             .split("=")
             .nth(1)

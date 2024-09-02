@@ -43,7 +43,7 @@ type Result<T> = std::result::Result<T, ConfigError>;
 
 impl Display for ConfigValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self._pairs().1)
+        write!(f, "{}: {}", self._pairs().0, self.inner())
     }
 }
 
@@ -57,18 +57,14 @@ impl ConfigValue {
         }
     }
 
-    pub fn to_string(&self) -> String {
-        self._pairs().0.into()
-    }
-
     pub fn inner(&self) -> &str {
         self._pairs().1
     }
 
     fn _pairs(&self) -> (&str, &str) {
         match self {
-            Self::Token(s) => ("token", s),
-            Self::Channel(s) => ("channel", s),
+            Self::Token(s) => ("Token", s),
+            Self::Channel(s) => ("Channel", s),
         }
     }
 
