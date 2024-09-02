@@ -1,3 +1,6 @@
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/obvMellow/distore/rust-clippy.yml?style=flat-square)
+![Crates.io Version](https://img.shields.io/crates/v/distore?style=flat-square)
+
 # Distore
 Utility to use Discord as cloud storage.
 
