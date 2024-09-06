@@ -13,6 +13,8 @@ use indicatif_log_bridge::LogWrapper;
 use log::info;
 use serenity::all::{ChannelId, CreateAttachment, CreateMessage, GetMessages, Http, Message};
 
+static PART_SIZE: usize = 1000 * 1000 * 25;
+
 pub fn config(global: bool, key: String, val: String, dir: Option<PathBuf>) -> Result<()> {
     let conf = ConfigValue::parse(key, val)?;
     let current_dir = env::current_dir()?;
@@ -63,7 +65,7 @@ pub fn disassemble(path: PathBuf, output: PathBuf) -> Result<()> {
         File::open(&path).with_context(|| format!("Cannot open file: {}", path.display()))?;
     let filename = path.file_name().unwrap().to_str().unwrap().to_owned();
 
-    let mut buf = vec![0; 1000 * 1000 * 25];
+    let mut buf = vec![0; PART_SIZE];
 
     let mut i = 0;
     while let Ok(bytes_read) = file.read(&mut buf) {
