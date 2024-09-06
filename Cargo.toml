@@ -1,6 +1,6 @@
 [package]
 name = "distore"
-version = "0.1.2"
+version = "0.1.3"
 description = "Utility to use Discord as cloud storage"
 authors = ["Deniz Demir <darkenedMellow@protonmail.com>"]
 license = "GPL-3.0-or-later"
