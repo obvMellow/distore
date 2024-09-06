@@ -13,7 +13,7 @@ use indicatif_log_bridge::LogWrapper;
 use log::info;
 use serenity::all::{ChannelId, CreateAttachment, CreateMessage, GetMessages, Http, Message};
 
-static PART_SIZE: usize = 1000 * 1000 * 25;
+static PART_SIZE: usize = 1000 * 1000 * 10;
 
 pub fn config(global: bool, key: String, val: String, dir: Option<PathBuf>) -> Result<()> {
     let conf = ConfigValue::parse(key, val)?;
