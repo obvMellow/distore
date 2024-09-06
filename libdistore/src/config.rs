@@ -77,7 +77,8 @@ impl ConfigValue {
             _ = File::create(path)?;
         }
         let mut f = Ini::load_from_file(path)?;
-        f.with_section(scope).set(value.to_string(), value.inner());
+        f.with_section(scope)
+            .set(value._pairs().0.to_lowercase(), value.inner());
         f.write_to_file(path)?;
         Ok(())
     }
