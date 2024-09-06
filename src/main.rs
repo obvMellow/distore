@@ -92,6 +92,8 @@ enum Commands {
         #[arg(short, long, require_equals = true)]
         channel: Option<u64>,
     },
+    /// Checks for updates
+    Update,
 }
 
 // Convenience macro to read user input
@@ -163,6 +165,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::List { token, channel } => {
             commands::list(token, channel, args.config_directory).await?
         }
+        Commands::Update => commands::check_update().await?,
     }
 
     Ok(())

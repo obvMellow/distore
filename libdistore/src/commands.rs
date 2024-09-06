@@ -3,6 +3,8 @@ use std::{
     fs::{self, File},
     io::{Read, Write},
     path::PathBuf,
+    process::{Command, Stdio},
+    str::FromStr,
 };
 
 use crate::config::{ConfigError, ConfigValue};
@@ -10,10 +12,30 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use indicatif::{HumanBytes, MultiProgress, ProgressBar, ProgressStyle};
 use indicatif_log_bridge::LogWrapper;
+use lazy_static::lazy_static;
 use log::info;
+use reqwest::Client;
+use semver::Version;
+use serde_json::Value;
 use serenity::all::{ChannelId, CreateAttachment, CreateMessage, GetMessages, Http, Message};
 
 static PART_SIZE: usize = 1000 * 1000 * 10;
+
+lazy_static! {
+    static ref VERSION: Version = {
+        let mut buf = String::new();
+        Command::new("distore")
+            .arg("-V")
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .stdout
+            .unwrap()
+            .read_to_string(&mut buf)
+            .unwrap();
+        Version::from_str(buf.split(" ").nth(1).unwrap().trim()).unwrap()
+    };
+}
 
 pub fn config(global: bool, key: String, val: String, dir: Option<PathBuf>) -> Result<()> {
     let conf = ConfigValue::parse(key, val)?;
@@ -414,6 +436,42 @@ pub async fn list(token: Option<String>, channel: Option<u64>, dir: Option<PathB
     }
 
     Ok(())
+}
+
+pub async fn check_update() -> Result<()> {
+    let url = "https://crates.io/api/v1/crates/distore";
+
+    let res = Client::new()
+        .get(url)
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json")
+        .header("User-Agent", format!("distore/{}", *VERSION))
+        .send()
+        .await
+        .context("Failed to fetch the latest version")?;
+
+    let error = res.error_for_status();
+    match error {
+        Ok(res) => {
+            let json = res.json::<Value>().await?;
+
+            let latest = Version::from_str(
+                json["crate"]["newest_version"]
+                    .to_string()
+                    .replace("\"", "")
+                    .as_str(),
+            )?;
+
+            if latest > *VERSION {
+                println!("New version available: v{} -> v{latest}", *VERSION);
+                println!("Run this command to update: cargo install distore");
+            } else {
+                println!("Already at the latest version: v{latest}");
+            }
+            Ok(())
+        }
+        Err(e) => Err(anyhow::Error::new(e).context("Failed to fetch the latest version")),
+    }
 }
 
 async fn _get_messages(
