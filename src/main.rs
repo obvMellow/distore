@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{io::Write, path::PathBuf};
 
 use clap::{Parser, Subcommand};
 
@@ -94,9 +94,46 @@ enum Commands {
     },
 }
 
+// Convenience macro to read user input
+macro_rules! inputln {
+    ($message:expr) => {{
+        print!("{}: ", $message);
+        std::io::stdout().flush().unwrap();
+        inputln!()
+    }};
+    () => {{
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).unwrap();
+        input.trim().to_string()
+    }};
+}
+
+fn first_time_run(args: Args) {
+    println!("Looks like it's your first time running.");
+    println!(
+        "Follow the instructions at https://github.com/obvMellow/distore?tab=readme-ov-file#usage"
+    );
+    println!("Then Input your token and channel ID. They will be set automatically for you.");
+
+    let token = inputln!("Token");
+    let channel = inputln!("Channel");
+
+    commands::config(true, "token".into(), token, args.config_directory.clone()).unwrap();
+    commands::config(true, "channel".into(), channel, args.config_directory).unwrap();
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    let config_path = dirs::config_dir()
+        .expect("No config directory found.")
+        .join("distore/distore.ini");
+
+    if !config_path.exists() {
+        first_time_run(args);
+        return Ok(());
+    }
 
     match args.command {
         Commands::Config { global, key, value } => match key {

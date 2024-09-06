@@ -1,6 +1,6 @@
 [package]
 name = "distore"
-version = "0.1.1"
+version = "0.1.2"
 description = "Utility to use Discord as cloud storage"
 authors = ["Deniz Demir <darkenedMellow@protonmail.com>"]
 license = "GPL-3.0-or-later"
@@ -16,3 +16,4 @@ libdistore = { path = "./libdistore", version = "0.1.0" }
 clap = { version = "4.5.16", features = ["derive"] }
 tokio = { version = "1.39.3", features = ["rt-multi-thread"] }
 anyhow = "1.0.86"
+dirs = "5.0.1"
