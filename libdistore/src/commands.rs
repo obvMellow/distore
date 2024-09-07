@@ -20,7 +20,9 @@ use log::info;
 use reqwest::Client;
 use semver::Version;
 use serde_json::Value;
-use serenity::all::{ChannelId, CreateAttachment, CreateMessage, GetMessages, Http, Message};
+use serenity::all::{
+    ChannelId, CreateAttachment, CreateMessage, EditMessage, GetMessages, Http, Message,
+};
 
 static PART_SIZE: usize = 1000 * 1000 * 10;
 
@@ -260,9 +262,53 @@ pub async fn upload(
     }
 
     info!("Uploading...");
-    let msg = ChannelId::from(channel)
-        .send_files(http, parts, CreateMessage::new().content(msg))
-        .await?;
+    let chunks: Vec<Vec<CreateAttachment>> = parts.chunks(10).map(|chunk| chunk.to_vec()).collect();
+    let mut messages = Vec::new();
+    info!("Sending {} message(s) in total", chunks.len());
+
+    for chunk in chunks {
+        let msg = ChannelId::from(channel)
+            .send_files(&http, chunk, CreateMessage::new().content("tmp"))
+            .await?;
+        messages.push(msg.clone());
+        info!(
+            "Sent {}..{}",
+            msg.attachments
+                .first()
+                .unwrap()
+                .filename
+                .split(".")
+                .last()
+                .unwrap(),
+            msg.attachments
+                .last()
+                .unwrap()
+                .filename
+                .split(".")
+                .last()
+                .unwrap()
+        );
+    }
+
+    info!("Editing messages...");
+
+    for (i, message) in messages.iter().enumerate() {
+        let mut content = String::new();
+        let next = messages.iter().cloned().nth(i + 1);
+        if i == 0 {
+            content = format!("{msg}\nlen={}\n", parts.len());
+        }
+        match next {
+            Some(v) => {
+                content += &format!("next={}", v.id);
+            }
+            None => {}
+        }
+        message
+            .clone()
+            .edit(&http, EditMessage::new().content(content))
+            .await?;
+    }
 
     info!("Cleaning up...");
 
@@ -274,8 +320,8 @@ pub async fn upload(
     println!(
         "{} parts to channel id {}. Message id: {}",
         "Uploaded".green().bold(),
-        msg.channel_id,
-        msg.id
+        messages[0].channel_id,
+        messages[0].id
     );
 
     Ok(())
@@ -314,9 +360,9 @@ pub async fn download(
     let http = Http::new(&token);
 
     let msg = http.get_message(channel.into(), message_id.into()).await?;
-    let name = FileEntry::from_str(&msg.content)?
-        .name
-        .ok_or(anyhow!("Invalid Message"))?;
+    let mut entry = FileEntry::from_str(&msg.content)?;
+    let name = entry.name.ok_or(anyhow!("Invalid Message"))?;
+    let len = entry.len.ok_or(anyhow!("Invalid Message"))?;
 
     let mut out = File::create(output.clone().unwrap_or(name.clone().into()))?;
 
@@ -328,7 +374,7 @@ pub async fn download(
         .try_init()
         .context("Failed to initilize logger")
         .unwrap();
-    let pb = multi.add(ProgressBar::new(msg.attachments.len().try_into().unwrap()));
+    let pb = multi.add(ProgressBar::new(len as u64));
 
     pb.set_style(
         ProgressStyle::with_template(
@@ -339,11 +385,24 @@ pub async fn download(
     );
     pb.set_message("Assembling");
 
-    for part in msg.attachments {
-        info!("{} {}", "Downloading".blue().bold(), part.filename);
-        let part = part.download().await?;
-        out.write_all(&part)?;
-        pb.inc(1);
+    let mut i = 0;
+    let mut msg = msg;
+    while entry.next.is_some() || i < len {
+        for part in msg.attachments.iter() {
+            info!("{} {}", "Downloading".blue().bold(), part.filename);
+            let part = part.download().await?;
+            out.write_all(&part)?;
+            pb.inc(1);
+        }
+        i += msg.attachments.len();
+
+        if entry.next.is_none() {
+            continue;
+        }
+
+        let next_id = entry.next.unwrap();
+        msg = http.get_message(channel.into(), next_id.into()).await?;
+        entry = FileEntry::from_str(&msg.content)?;
     }
     pb.finish();
 
@@ -402,6 +461,9 @@ pub async fn list(token: Option<String>, channel: Option<u64>, dir: Option<PathB
             continue;
         }
         let entry = FileEntry::from_str(&msg.content)?;
+        if entry.name.is_none() {
+            continue;
+        }
         let name = entry.name.ok_or(anyhow!("Invalid Message"))?;
         let size = entry.size.ok_or(anyhow!("Invalid Message"))?;
 

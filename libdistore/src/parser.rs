@@ -4,6 +4,7 @@ use thiserror::Error;
 pub struct FileEntry {
     pub name: Option<String>,
     pub size: Option<u64>,
+    pub len: Option<usize>,
     pub next: Option<u64>,
 }
 
@@ -21,6 +22,7 @@ impl Default for FileEntry {
         Self {
             name: None,
             size: None,
+            len: None,
             next: None,
         }
     }
@@ -29,6 +31,9 @@ impl Default for FileEntry {
 impl FileEntry {
     pub fn from_str(str: &str) -> Result<FileEntry, ParseError> {
         let mut out = FileEntry::default();
+        if str.is_empty() {
+            return Ok(out);
+        }
         for line in str.split("\n") {
             if line.starts_with("#") {
                 continue;
@@ -45,6 +50,7 @@ impl FileEntry {
             match key {
                 "name" => out.name = Some(val.into()),
                 "size" => out.size = Some(val.parse()?),
+                "len" => out.len = Some(val.parse()?),
                 "next" => out.next = Some(val.parse()?),
                 _ => {}
             }
