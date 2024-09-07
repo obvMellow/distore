@@ -516,6 +516,60 @@ pub async fn check_update() -> Result<()> {
     }
 }
 
+pub async fn delete(
+    message_id: u64,
+    token: Option<String>,
+    channel: Option<u64>,
+    dir: Option<PathBuf>,
+) -> Result<()> {
+    colog::default_builder()
+        .filter(Some("serenity"), log::LevelFilter::Off)
+        .init();
+    let mut path = dir
+        .unwrap_or(dirs::config_dir().ok_or(ConfigError::NoConfigDir)?)
+        .join("distore");
+    fs::create_dir_all(&path).context("Failed to create config directory")?;
+    path.push("distore.ini");
+
+    let token = token.unwrap_or_else(|| {
+        crate::config::ConfigValue::get_current_config(&path)
+            .context("Failed to get the config file")
+            .unwrap()
+            .0
+            .inner()
+            .to_string()
+    });
+    let channel = channel.unwrap_or_else(|| {
+        crate::config::ConfigValue::get_current_config(&path)
+            .unwrap()
+            .1
+            .inner()
+            .parse()
+            .unwrap()
+    });
+
+    let http = Http::new(&token);
+
+    let msg = http.get_message(channel.into(), message_id.into()).await?;
+
+    let mut entry = FileEntry::from_str(&msg.content)?;
+
+    let len = entry.len.ok_or(anyhow!("Invalid Message"))?;
+    info!("Deleting {} message(s)...", (len + 9) / 10);
+
+    msg.delete(&http).await?;
+
+    while entry.next.is_some() {
+        let msg = http
+            .get_message(channel.into(), entry.next.unwrap().into())
+            .await?;
+        entry = FileEntry::from_str(&msg.content)?;
+        msg.delete(&http).await?;
+    }
+
+    Ok(())
+}
+
 async fn _get_messages(
     channel_id: ChannelId,
     http: &Http,

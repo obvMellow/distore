@@ -94,6 +94,19 @@ enum Commands {
     },
     /// Checks for updates
     Update,
+    /// Deletes a file from Discord
+    Delete {
+        /// Message ID for the file
+        message_id: u64,
+
+        /// Optionally use a token for this one time
+        #[arg(short, long, require_equals = true)]
+        token: Option<String>,
+
+        /// Optionally use a channel for this one time
+        #[arg(short, long, require_equals = true)]
+        channel: Option<u64>,
+    },
 }
 
 // Convenience macro to read user input
@@ -166,6 +179,11 @@ async fn main() -> anyhow::Result<()> {
             commands::list(token, channel, args.config_directory).await?
         }
         Commands::Update => commands::check_update().await?,
+        Commands::Delete {
+            message_id,
+            token,
+            channel,
+        } => commands::delete(message_id, token, channel, args.config_directory).await?,
     }
 
     Ok(())
