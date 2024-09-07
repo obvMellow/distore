@@ -1,6 +1,6 @@
 [package]
 name = "libdistore"
-version = "0.2.0"
+version = "0.2.1"
 description = "Library for Distore"
 authors = ["Deniz Demir <darkenedMellow@protonmail.com>"]
 license = "GPL-3.0-or-later"

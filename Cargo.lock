@@ -399,7 +399,7 @@ dependencies = [
 
 [[package]]
 name = "distore"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -967,7 +967,7 @@ checksum = "d8adc4bb1803a324070e64a98ae98f38934d91957a99cfb3a43dcbc01bc56439"
 
 [[package]]
 name = "libdistore"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "colog",
