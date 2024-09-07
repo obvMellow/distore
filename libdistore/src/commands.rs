@@ -13,6 +13,7 @@ use crate::{
 };
 use anyhow::{anyhow, Context, Result};
 use colored::Colorize;
+use futures::future::join_all;
 use indicatif::{HumanBytes, MultiProgress, ProgressBar, ProgressStyle};
 use indicatif_log_bridge::LogWrapper;
 use lazy_static::lazy_static;
@@ -242,7 +243,6 @@ pub async fn upload(
     disassemble(file.clone(), cache_dir.clone())?;
     let read_dir = cache_dir.read_dir()?;
 
-    let mut parts = Vec::new();
     let mut part_paths = Vec::new();
 
     let look_for = format!("{filename}.part");
@@ -257,18 +257,27 @@ pub async fn upload(
             continue;
         }
 
-        parts.push(CreateAttachment::path(entry.path()).await?);
         part_paths.push(entry.path());
     }
 
     info!("Uploading...");
-    let chunks: Vec<Vec<CreateAttachment>> = parts.chunks(10).map(|chunk| chunk.to_vec()).collect();
+    let chunks: Vec<Vec<PathBuf>> = part_paths.chunks(10).map(|chunk| chunk.to_vec()).collect();
     let mut messages = Vec::new();
     info!("Sending {} message(s) in total", chunks.len());
 
     for chunk in chunks {
+        let attachment_futures: Vec<_> = chunk
+            .into_iter()
+            .map(|path| CreateAttachment::path(path))
+            .collect();
+        let attachments = join_all(attachment_futures).await;
+
         let msg = ChannelId::from(channel)
-            .send_files(&http, chunk, CreateMessage::new().content("tmp"))
+            .send_files(
+                &http,
+                attachments.into_iter().map(|a| a.unwrap()),
+                CreateMessage::new().content("tmp"),
+            )
             .await?;
         messages.push(msg.clone());
         info!(
@@ -296,7 +305,7 @@ pub async fn upload(
         let mut content = String::new();
         let next = messages.iter().cloned().nth(i + 1);
         if i == 0 {
-            content = format!("{msg}\nlen={}\n", parts.len());
+            content = format!("{msg}\nlen={}\n", part_paths.len());
         }
         match next {
             Some(v) => {
