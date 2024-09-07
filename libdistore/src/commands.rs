@@ -25,7 +25,7 @@ use serenity::all::{
     ChannelId, CreateAttachment, CreateMessage, EditMessage, GetMessages, Http, Message,
 };
 
-static PART_SIZE: usize = 1000 * 1000 * 10;
+static PART_SIZE: usize = 1000 * 1000 * 25;
 
 lazy_static! {
     static ref VERSION: Version = {
