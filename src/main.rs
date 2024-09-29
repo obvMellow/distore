@@ -1,6 +1,7 @@
 use std::{io::Write, path::PathBuf};
 
 use clap::{Parser, Subcommand};
+use libdistore::gui;
 
 mod commands;
 
@@ -8,7 +9,7 @@ mod commands;
 #[command(version, about)]
 struct Args {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 
     /// Custom config directory to use
     #[arg(short, long)]
@@ -141,6 +142,10 @@ fn first_time_run(args: Args) {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
+    if args.command.is_none() {
+        gui::run();
+    }
+
     let config_path = dirs::config_dir()
         .expect("No config directory found.")
         .join("distore/distore.ini");
@@ -150,7 +155,9 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    match args.command {
+    let command = args.command.unwrap();
+
+    match command {
         Commands::Config { global, key, value } => match key {
             Some(key) => commands::config(global, key, value.unwrap(), args.config_directory)?,
             None => commands::get_config(global, args.config_directory)?,

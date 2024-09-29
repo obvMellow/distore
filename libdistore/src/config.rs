@@ -9,7 +9,7 @@ use std::{
 use ini::{Ini, Properties};
 use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ConfigValue {
     Token(String),
     Channel(String),

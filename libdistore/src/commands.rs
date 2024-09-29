@@ -25,7 +25,7 @@ use serenity::all::{
     ChannelId, CreateAttachment, CreateMessage, EditMessage, GetMessages, Http, Message,
 };
 
-static PART_SIZE: usize = 1000 * 1000 * 25;
+static PART_SIZE: usize = 1000 * 1000 * 20;
 
 lazy_static! {
     static ref VERSION: Version = {
@@ -70,50 +70,77 @@ pub fn config(global: bool, key: String, val: String, dir: Option<PathBuf>) -> R
 }
 
 pub fn get_config(global: bool, dir: Option<PathBuf>) -> Result<()> {
-    let mut path = dir
-        .unwrap_or(dirs::config_dir().ok_or(ConfigError::NoConfigDir)?)
-        .join("distore");
-    fs::create_dir_all(&path).context("Failed to create config directory")?;
-    path.push("distore.ini");
-    let (token, channel) = match global {
-        true => crate::config::ConfigValue::get_global_config(&path)?,
-        false => crate::config::ConfigValue::get_current_config(&path)?,
-    };
+    let (token, channel) = get_config_internal(global, dir)?;
 
     println!("{}", token);
     println!("{}", channel);
     Ok(())
 }
 
+pub(crate) fn get_config_internal(global: bool, dir: Option<PathBuf>) -> Result<(ConfigValue, ConfigValue)> {
+    let mut path = dir
+        .unwrap_or(dirs::config_dir().ok_or(ConfigError::NoConfigDir)?)
+        .join("distore");
+    fs::create_dir_all(&path).context("Failed to create config directory")?;
+    path.push("distore.ini");
+    let out = match global {
+        true => crate::config::ConfigValue::get_global_config(&path)?,
+        false => crate::config::ConfigValue::get_current_config(&path)?,
+    };
+    return Ok(out);
+}
+
 pub fn disassemble(path: PathBuf, output: PathBuf) -> Result<()> {
     colog::default_builder()
         .filter(Some("serenity"), log::LevelFilter::Off)
         .init();
-    let mut file =
-        File::open(&path).with_context(|| format!("Cannot open file: {}", path.display()))?;
-    let filename = path.file_name().unwrap().to_str().unwrap().to_owned();
 
-    let mut buf = vec![0; PART_SIZE];
-
-    let mut i = 0;
-    while let Ok(bytes_read) = file.read(&mut buf) {
-        if bytes_read == 0 {
-            break;
-        }
-
-        let name = format!("{}.part{}", filename, i);
-        let mut chunk = File::create(output.join(&name))?;
-
-        info!("{} {name}", "Writing".blue().bold());
-        chunk.write_all(&buf[..bytes_read])?;
-        i += 1;
-    }
+    let (_, filename, i) = disassemble_internal(path, output, |_, _| {})?;
 
     println!(
         "{} {filename} into {i} parts",
         "Disassembled".green().bold()
     );
     Ok(())
+}
+
+pub(crate) fn disassemble_internal<F: Fn(String, f64)>(path: PathBuf, output: PathBuf, callback: F) -> Result<(Vec<PathBuf>, String, usize)> {
+    let mut file =
+        File::open(&path).with_context(|| format!("Cannot open file: {}", path.display()))?;
+    let filename = path.file_name().unwrap().to_str().unwrap().to_owned();
+
+    let mut out = Vec::new();
+
+    let mut buf = vec![0; PART_SIZE];
+
+    let mut progress = 0;
+    let total = (file.metadata().unwrap().len() + PART_SIZE as u64 - 1) / PART_SIZE as u64;
+    while let Ok(bytes_read) = file.read(&mut buf) {
+        if bytes_read == 0 {
+            break;
+        }
+
+        let name = format!("{}.part{}", filename, progress);
+        let path = output.join(&name);
+        let mut chunk = File::create(&path)?;
+
+        info!("{} {name}", "Writing".blue().bold());
+        chunk.write_all(&buf[..bytes_read])?;
+        progress += 1;
+
+        out.push(path);
+        let fraction = if total > 0 {
+            progress as f64 / total as f64
+        } else {
+            1.0 
+        };
+
+        let fraction = fraction.clamp(0.0, 1.0);
+        callback(format!("Disassembling {}", filename), fraction);
+    }
+
+    let len = out.len();
+    Ok((out, filename, len))
 }
 
 pub fn assemble(filename: String, path: PathBuf, output: Option<PathBuf>) -> Result<()> {
@@ -205,6 +232,9 @@ pub async fn upload(
     channel: Option<u64>,
     dir: Option<PathBuf>,
 ) -> Result<()> {
+    colog::default_builder()
+        .filter(Some("serenity"), log::LevelFilter::Off)
+        .init();
     let mut path = dir
         .unwrap_or(dirs::config_dir().ok_or(ConfigError::NoConfigDir)?)
         .join("distore");
@@ -230,7 +260,22 @@ pub async fn upload(
 
     let http = Http::new(&token);
 
-    let filename = file.file_name().unwrap().to_str().unwrap();
+    let messages = upload_internal(&http, file, channel, |_, _| {}).await?;
+
+    println!(
+        "{} parts to channel id {}. Message id: {}",
+        "Uploaded".green().bold(),
+        messages[0].channel_id,
+        messages[0].id
+    );
+
+    Ok(())
+}
+
+pub(crate) async fn upload_internal<F: Fn(String, f64)>(http: &Http, file: PathBuf, channel: u64, callback: F) -> Result<Vec<Message>> {
+    let cache_dir = dirs::cache_dir().unwrap().join("distore");
+    fs::create_dir_all(&cache_dir)?;
+    let (part_paths, filename, _) = disassemble_internal(file.clone(), cache_dir.clone(), &callback)?;
 
     let msg = format!(
         "### This message is generated by Distore. Do not edit this message.\nname={}\nsize={}",
@@ -238,33 +283,14 @@ pub async fn upload(
         file.metadata()?.len()
     );
 
-    let cache_dir = dirs::cache_dir().unwrap().join("distore");
-    fs::create_dir_all(&cache_dir)?;
-    disassemble(file.clone(), cache_dir.clone())?;
-    let read_dir = cache_dir.read_dir()?;
-
-    let mut part_paths = Vec::new();
-
-    let look_for = format!("{filename}.part");
-
-    for entry in read_dir {
-        let entry = entry?;
-        if !entry.file_type()?.is_file() {
-            continue;
-        }
-
-        if !entry.file_name().to_str().unwrap().starts_with(&look_for) {
-            continue;
-        }
-
-        part_paths.push(entry.path());
-    }
-
     info!("Uploading...");
     let chunks: Vec<Vec<PathBuf>> = part_paths.chunks(10).map(|chunk| chunk.to_vec()).collect();
     let mut messages = Vec::new();
     info!("Sending {} message(s) in total", chunks.len());
 
+    callback(format!("Uploading {}", filename), 0.0);
+    let mut progress = 0;
+    let total = chunks.len();
     for chunk in chunks {
         let attachment_futures: Vec<_> = chunk
             .into_iter()
@@ -280,6 +306,17 @@ pub async fn upload(
             )
             .await?;
         messages.push(msg.clone());
+        progress += 1;
+
+        let fraction = if total > 0 {
+            progress as f64 / total as f64
+        } else {
+            1.0 
+        };
+
+        let fraction = fraction.clamp(0.0, 1.0);
+        callback(format!("Uploading {}", filename), fraction);
+
         info!(
             "Sent {}..{}",
             msg.attachments
@@ -301,6 +338,8 @@ pub async fn upload(
 
     info!("Editing messages...");
 
+    let mut progress = 0;
+    let total = messages.len();
     for (i, message) in messages.iter().enumerate() {
         let mut content = String::new();
         let next = messages.iter().cloned().nth(i + 1);
@@ -317,6 +356,15 @@ pub async fn upload(
             .clone()
             .edit(&http, EditMessage::new().content(content))
             .await?;
+        progress += 1;
+
+        let fraction = if total > 0 {
+            progress as f64 / total as f64
+        } else {
+            1.0 
+        };
+
+        callback("Editing".to_string(), fraction);
     }
 
     info!("Cleaning up...");
@@ -326,14 +374,7 @@ pub async fn upload(
         fs::remove_file(part).context("Failed to remove file")?;
     }
 
-    println!(
-        "{} parts to channel id {}. Message id: {}",
-        "Uploaded".green().bold(),
-        messages[0].channel_id,
-        messages[0].id
-    );
-
-    Ok(())
+    Ok(messages)
 }
 
 pub async fn download(
@@ -368,12 +409,7 @@ pub async fn download(
 
     let http = Http::new(&token);
 
-    let msg = http.get_message(channel.into(), message_id.into()).await?;
-    let mut entry = FileEntry::from_str(&msg.content)?;
-    let name = entry.name.ok_or(anyhow!("Invalid Message"))?;
-    let len = entry.len.ok_or(anyhow!("Invalid Message"))?;
-
-    let mut out = File::create(output.clone().unwrap_or(name.clone().into()))?;
+    let (_, _, name, len) = _get_download_variables(&http, message_id, channel).await?;
 
     let multi = MultiProgress::new();
     let logger = colog::default_builder()
@@ -394,14 +430,56 @@ pub async fn download(
     );
     pb.set_message("Assembling");
 
+    let pb_clone = pb.clone();
+    download_internal(&http, message_id, channel, output.clone(), move |_| pb_clone.inc(1)).await?;
+
+    pb.finish();
+
+    println!(
+        "{} {}",
+        "Downloaded".green().bold(),
+        output.unwrap_or(name.into()).display()
+    );
+
+    Ok(())
+}
+
+pub(crate) async fn _get_download_variables(http: &Http, message_id: u64, channel: u64) -> Result<(Message, FileEntry, String, usize)> {
+    let msg = http.get_message(channel.into(), message_id.into()).await?;
+    let entry = FileEntry::from_str(&msg.content)?;
+    let name = entry.name.clone().ok_or(anyhow!("Invalid Message"))?;
+    let len = entry.len.ok_or(anyhow!("Invalid Message"))?;
+
+    Ok((msg, entry, name, len))
+}
+
+pub(crate) async fn download_internal<F: Fn(f64)>(http: &Http, message_id: u64, channel: u64, output: Option<PathBuf>, callback: F) -> Result<PathBuf> {
+    let (msg, mut entry, name, len) = _get_download_variables(http, message_id, channel).await?;
+
+    let size = entry.size.unwrap();
+
+    let path = output.clone().unwrap_or(name.clone().into());
+    let mut out = File::create(&path)?;
+
     let mut i = 0;
     let mut msg = msg;
+    let mut progress = 0;
     while entry.next.is_some() || i < len {
         for part in msg.attachments.iter() {
             info!("{} {}", "Downloading".blue().bold(), part.filename);
             let part = part.download().await?;
+
+            progress += part.len();
+            let fraction = if size > 0 {
+                progress as f64 / size as f64
+            } else {
+                1.0 
+            };
+
+            let fraction = fraction.clamp(0.0, 1.0);
+
             out.write_all(&part)?;
-            pb.inc(1);
+            callback(fraction);
         }
         i += msg.attachments.len();
 
@@ -413,15 +491,8 @@ pub async fn download(
         msg = http.get_message(channel.into(), next_id.into()).await?;
         entry = FileEntry::from_str(&msg.content)?;
     }
-    pb.finish();
 
-    println!(
-        "{} {}",
-        "Downloaded".green().bold(),
-        output.unwrap_or(name.into()).display()
-    );
-
-    Ok(())
+    Ok(path)
 }
 
 pub async fn list(token: Option<String>, channel: Option<u64>, dir: Option<PathBuf>) -> Result<()> {
@@ -456,7 +527,26 @@ pub async fn list(token: Option<String>, channel: Option<u64>, dir: Option<PathB
     let channel = http.get_channel(channel.into()).await?.id();
 
     info!("Retrieving messages...");
-    let messages = _get_messages(channel, &http).await?;
+    
+    let list = list_internal(channel.into(), &http).await?;
+
+    for entry in list {
+        println!(
+            "{}: {}\n    {}: {}\n    {}: {}",
+            "ID".bold(),
+            entry.1,
+            "Name".bold(),
+            entry.0.name.unwrap(),
+            "Size".bold(),
+            HumanBytes(entry.0.size.unwrap())
+        );
+    }
+    Ok(())
+}
+
+pub(crate) async fn list_internal(channel: u64, http: &Http) -> Result<Vec<(FileEntry, u64)>> {
+    let messages = _get_messages(channel.into(), &http).await?;
+    let mut out = Vec::new();
 
     for msg in messages {
         if !msg.author.bot {
@@ -476,17 +566,9 @@ pub async fn list(token: Option<String>, channel: Option<u64>, dir: Option<PathB
         let name = entry.name.ok_or(anyhow!("Invalid Message"))?;
         let size = entry.size.ok_or(anyhow!("Invalid Message"))?;
 
-        println!(
-            "{}: {}\n    {}: {name}\n    {}: {}",
-            "ID".bold(),
-            msg.id,
-            "Name".bold(),
-            "Size".bold(),
-            HumanBytes(size)
-        );
+        out.push((FileEntry { name: Some(name), size: Some(size), len: entry.len, next: entry.next }, msg.id.into()))
     }
-
-    Ok(())
+    return Ok(out);
 }
 
 pub async fn check_update() -> Result<()> {

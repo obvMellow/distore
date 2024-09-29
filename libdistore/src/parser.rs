@@ -1,6 +1,7 @@
 use std::num::ParseIntError;
 use thiserror::Error;
 
+#[derive(Clone)]
 pub struct FileEntry {
     pub name: Option<String>,
     pub size: Option<u64>,
