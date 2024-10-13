@@ -13,7 +13,7 @@ use gtk::{AlertDialog, Application, Button, ProgressBar};
 use indicatif::HumanBytes;
 use serenity::all::{ChannelId, Http};
 
-use crate::commands::{self, download_internal, upload_internal};
+use crate::commands::{self, delete_internal, download_internal, upload_internal};
 use crate::parser::FileEntry;
 
 const APP_ID: &str = "org.distore.Distore";
@@ -104,6 +104,119 @@ fn build_ui(app: &Application) {
     button_box.append(&download_btn);
     button_box.append(&upload_btn);
     button_box.append(&delete_btn);
+
+    let list_box_clone = list_box.clone();
+    let progress_box_clone = progress_box.clone();
+    let window_clone = window.clone();
+    let channel_ = channel.clone();
+    let token_ = token.clone();
+    delete_btn.connect_clicked(move |_| {
+        if let Some(selected_row) = list_box_clone.selected_row() {
+            if let Some(box_) = selected_row.child().and_then(|w| w.downcast::<Box>().ok()) {
+                let mut labels: Vec<Label> = Vec::new();
+
+                let first_child: Label = box_.first_child().unwrap().downcast().unwrap();
+                labels.push(first_child.clone());
+
+                let mut current: Option<Label> = Some(first_child);
+
+                while let Some(curr) = current {
+                    current = match curr.next_sibling() {
+                        Some(v) => v.downcast().ok(),
+                        None => None,
+                    };
+
+                    if current.is_some() {
+                        labels.push(current.clone().unwrap());
+                    }
+                }
+
+                for (i, label) in labels.iter().enumerate() {
+                    println!("Label {}: {}", i, label.label());
+                }
+
+                let mut iter = labels.iter();
+                let name = iter.next().unwrap().to_owned();
+                let _size = iter.next().unwrap().label().replace("Size: ", "");
+                let id = iter
+                    .next()
+                    .unwrap()
+                    .label()
+                    .replace("ID: ", "")
+                    .parse::<u64>()
+                    .unwrap();
+
+                let progressbar = Rc::new(
+                    ProgressBar::builder()
+                        .visible(true)
+                        .show_text(true)
+                        .valign(Align::Fill)
+                        .pulse_step(0.0)
+                        .build(),
+                );
+                progressbar.set_text(Some(format!("Deleting {}", name.label()).as_str()));
+                progressbar.set_fraction(0.0);
+
+                progress_box_clone.append(&*progressbar);
+
+                let (sender, receiver) = mpsc::channel();
+
+                let http = Http::new(token_.inner());
+                let channel_ = channel_.clone();
+                tokio::spawn(async move {
+                    let res = delete_internal(&http, id, channel_.inner().parse().unwrap(), || {
+                        sender.send((Some(()), None)).unwrap();
+                    })
+                    .await;
+
+                    sender.send((None, Some(res))).unwrap();
+                });
+
+                let progressbar = progressbar.clone();
+                let progress_box_clone = progress_box_clone.clone();
+                let window_clone = window_clone.clone();
+                let list_box_clone = list_box_clone.clone();
+                progressbar.pulse();
+                glib::timeout_add_local(Duration::from_millis(100), move || {
+                    match receiver.try_recv() {
+                        Ok((p, r)) => {
+                            if let Some(_) = p {
+                                progressbar.pulse();
+                            }
+
+                            if let Some(r) = r {
+                                match r {
+                                    Ok(_) => {
+                                        list_box_clone.remove(&selected_row);
+
+                                        AlertDialog::builder()
+                                            .message("Delete Complete")
+                                            .detail(format!("Succesfully deleted {}", name.label()))
+                                            .build()
+                                            .show(Some(&*window_clone));
+                                    }
+                                    Err(e) => {
+                                        AlertDialog::builder()
+                                            .message("Delete Failed")
+                                            .detail(format!("An error occured: {}", e))
+                                            .build()
+                                            .show(Some(&*window_clone));
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            if let TryRecvError::Disconnected = e {
+                                progress_box_clone.remove(&*progressbar);
+                                return glib::ControlFlow::Break;
+                            }
+                        }
+                    }
+                    glib::ControlFlow::Continue
+                });
+            }
+        }
+    });
 
     let window_clone = window.clone();
     let channel_ = channel.clone();
