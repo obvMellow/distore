@@ -90,7 +90,7 @@ pub(crate) fn get_config_internal(
         true => crate::config::ConfigValue::get_global_config(&path)?,
         false => crate::config::ConfigValue::get_current_config(&path)?,
     };
-    return Ok(out);
+    Ok(out)
 }
 
 pub fn disassemble(path: PathBuf, output: PathBuf) -> Result<()> {
@@ -305,10 +305,7 @@ pub(crate) async fn upload_internal<F: Fn(String, f64)>(
     let mut progress = 0;
     let total = chunks.len();
     for chunk in chunks {
-        let attachment_futures: Vec<_> = chunk
-            .into_iter()
-            .map(|path| CreateAttachment::path(path))
-            .collect();
+        let attachment_futures: Vec<_> = chunk.into_iter().map(CreateAttachment::path).collect();
         let attachments = join_all(attachment_futures).await;
 
         let msg = ChannelId::from(channel)
@@ -355,15 +352,12 @@ pub(crate) async fn upload_internal<F: Fn(String, f64)>(
     let total = messages.len();
     for (i, message) in messages.iter().enumerate() {
         let mut content = String::new();
-        let next = messages.iter().cloned().nth(i + 1);
+        let next = messages.get(i + 1).cloned();
         if i == 0 {
             content = format!("{msg}\nlen={}\n", part_paths.len());
         }
-        match next {
-            Some(v) => {
-                content += &format!("next={}", v.id);
-            }
-            None => {}
+        if let Some(v) = next {
+            content += &format!("next={}", v.id);
         }
         message
             .clone()
@@ -571,7 +565,7 @@ pub async fn list(token: Option<String>, channel: Option<u64>, dir: Option<PathB
 }
 
 pub(crate) async fn list_internal(channel: u64, http: &Http) -> Result<Vec<(FileEntry, u64)>> {
-    let messages = _get_messages(channel.into(), &http).await?;
+    let messages = _get_messages(channel.into(), http).await?;
     let mut out = Vec::new();
 
     for msg in messages {
@@ -602,7 +596,7 @@ pub(crate) async fn list_internal(channel: u64, http: &Http) -> Result<Vec<(File
             msg.id.into(),
         ))
     }
-    return Ok(out);
+    Ok(out)
 }
 
 pub async fn check_update() -> Result<()> {

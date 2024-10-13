@@ -1,7 +1,7 @@
 use std::num::ParseIntError;
 use thiserror::Error;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct FileEntry {
     pub name: Option<String>,
     pub size: Option<u64>,
@@ -18,19 +18,10 @@ pub enum ParseError {
     ParseIntError(#[from] ParseIntError),
 }
 
-impl Default for FileEntry {
-    fn default() -> Self {
-        Self {
-            name: None,
-            size: None,
-            len: None,
-            next: None,
-        }
-    }
-}
+impl std::str::FromStr for FileEntry {
+    type Err = ParseError;
 
-impl FileEntry {
-    pub fn from_str(str: &str) -> Result<FileEntry, ParseError> {
+    fn from_str(str: &str) -> Result<FileEntry, Self::Err> {
         let mut out = FileEntry::default();
         if str.is_empty() {
             return Ok(out);

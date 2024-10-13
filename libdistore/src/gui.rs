@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::process::exit;
 use std::rc::Rc;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::TryRecvError;
 use std::sync::{mpsc, Arc, Mutex};
@@ -180,7 +181,7 @@ fn build_ui(app: &Application) {
                 glib::timeout_add_local(Duration::from_millis(100), move || {
                     match receiver.try_recv() {
                         Ok((p, r)) => {
-                            if let Some(_) = p {
+                            if p.is_some() {
                                 progressbar.pulse();
                             }
 
