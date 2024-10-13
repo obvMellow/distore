@@ -13,19 +13,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # Install system dependencies for Pango and GTK
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          libpango1.0-dev \
-          libgtk-4-dev \
-          libgdk-pixbuf2.0-dev \
-          libcairo2-dev \
-          libglib2.0-dev
-
     - name: Install Clippy
       run: rustup component add clippy
 
     - name: Check
-      run: cargo clippy -- -Dwarnings
+      run: cargo clippy -- -Dwarnings --no-deps
