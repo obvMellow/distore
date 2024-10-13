@@ -147,74 +147,105 @@ fn build_ui(app: &Application) {
                     .parse::<u64>()
                     .unwrap();
 
-                let progressbar = Rc::new(
-                    ProgressBar::builder()
-                        .visible(true)
-                        .show_text(true)
-                        .valign(Align::Fill)
-                        .pulse_step(0.0)
-                        .build(),
-                );
-                progressbar.set_text(Some(format!("Deleting {}", name.label()).as_str()));
-                progressbar.set_fraction(0.0);
-
-                progress_box_clone.append(&*progressbar);
-
-                let (sender, receiver) = mpsc::channel();
-
-                let http = Http::new(token_.inner());
-                let channel_ = channel_.clone();
-                tokio::spawn(async move {
-                    let res = delete_internal(&http, id, channel_.inner().parse().unwrap(), || {
-                        sender.send((Some(()), None)).unwrap();
-                    })
-                    .await;
-
-                    sender.send((None, Some(res))).unwrap();
-                });
-
-                let progressbar = progressbar.clone();
-                let progress_box_clone = progress_box_clone.clone();
-                let window_clone = window_clone.clone();
                 let list_box_clone = list_box_clone.clone();
-                progressbar.pulse();
-                glib::timeout_add_local(Duration::from_millis(100), move || {
-                    match receiver.try_recv() {
-                        Ok((p, r)) => {
-                            if p.is_some() {
-                                progressbar.pulse();
+                let progress_box_clone = progress_box_clone.clone();
+                let window_clone_ = window_clone.clone();
+                let channel_ = channel_.clone();
+                let token_ = token_.clone();
+                AlertDialog::builder()
+                    .message("Are You Sure?")
+                    .detail(format!("Do you really want to delete {}?", name.label()))
+                    .buttons(["Yes", "No"])
+                    .cancel_button(1)
+                    .build()
+                    .choose(
+                        Some(&*window_clone),
+                        Some(&gtk::gio::Cancellable::new()),
+                        move |r| {
+                            let index = r.unwrap();
+
+                            if index == 1 {
+                                return;
                             }
+                            let progressbar = Rc::new(
+                                ProgressBar::builder()
+                                    .visible(true)
+                                    .show_text(true)
+                                    .valign(Align::Fill)
+                                    .pulse_step(0.0)
+                                    .build(),
+                            );
+                            progressbar
+                                .set_text(Some(format!("Deleting) {}", name.label()).as_str()));
+                            progressbar.set_fraction(0.0);
 
-                            if let Some(r) = r {
-                                match r {
-                                    Ok(_) => {
-                                        list_box_clone.remove(&selected_row);
+                            progress_box_clone.append(&*progressbar);
 
-                                        AlertDialog::builder()
-                                            .message("Delete Complete")
-                                            .detail(format!("Succesfully deleted {}", name.label()))
-                                            .build()
-                                            .show(Some(&*window_clone));
+                            let (sender, receiver) = mpsc::channel();
+
+                            let http = Http::new(token_.inner());
+                            let channel_ = channel_.clone();
+                            tokio::spawn(async move {
+                                let res = delete_internal(
+                                    &http,
+                                    id,
+                                    channel_.inner().parse().unwrap(),
+                                    || {
+                                        sender.send((Some(()), None)).unwrap();
+                                    },
+                                )
+                                .await;
+
+                                sender.send((None, Some(res))).unwrap();
+                            });
+
+                            let progressbar = progressbar.clone();
+                            let progress_box_clone = progress_box_clone.clone();
+                            let window_clone = window_clone_.clone();
+                            let list_box_clone = list_box_clone.clone();
+                            progressbar.pulse();
+                            glib::timeout_add_local(Duration::from_millis(100), move || {
+                                match receiver.try_recv() {
+                                    Ok((p, r)) => {
+                                        if p.is_some() {
+                                            progressbar.pulse();
+                                        }
+
+                                        if let Some(r) = r {
+                                            match r {
+                                                Ok(_) => {
+                                                    list_box_clone.remove(&selected_row);
+
+                                                    AlertDialog::builder()
+                                                        .message("Delete Complete")
+                                                        .detail(format!(
+                                                            "Succesfully deleted {}",
+                                                            name.label()
+                                                        ))
+                                                        .build()
+                                                        .show(Some(&*window_clone));
+                                                }
+                                                Err(e) => {
+                                                    AlertDialog::builder()
+                                                        .message("Delete Failed")
+                                                        .detail(format!("An error occured: {}", e))
+                                                        .build()
+                                                        .show(Some(&*window_clone));
+                                                }
+                                            }
+                                        }
                                     }
                                     Err(e) => {
-                                        AlertDialog::builder()
-                                            .message("Delete Failed")
-                                            .detail(format!("An error occured: {}", e))
-                                            .build()
-                                            .show(Some(&*window_clone));
+                                        if let TryRecvError::Disconnected = e {
+                                            progress_box_clone.remove(&*progressbar);
+                                            return glib::ControlFlow::Break;
+                                        }
                                     }
                                 }
-                            }
-                        }
-                        Err(e) => {
-                            if let TryRecvError::Disconnected = e {
-                                progress_box_clone.remove(&*progressbar);
-                                return glib::ControlFlow::Break;
-                            }
-                        }
-                    }
-                    glib::ControlFlow::Continue
-                });
+                                glib::ControlFlow::Continue
+                            });
+                        },
+                    );
             }
         }
     });
