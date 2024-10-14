@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::path::PathBuf;
 use std::process::exit;
 use std::rc::Rc;
@@ -7,14 +8,16 @@ use std::sync::mpsc::TryRecvError;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
+use anyhow::anyhow;
 use gtk::gio::{Cancellable, FileQueryInfoFlags, FILE_ATTRIBUTE_STANDARD_NAME};
-use gtk::{glib, FileDialog, ScrolledWindow};
+use gtk::{glib, Entry, FileDialog, ScrolledWindow};
 use gtk::{prelude::*, Align, ApplicationWindow, Box, Label, ListBox, ListBoxRow, Orientation};
 use gtk::{AlertDialog, Application, Button, ProgressBar};
 use indicatif::HumanBytes;
 use serenity::all::{ChannelId, Http};
 
 use crate::commands::{self, delete_internal, download_internal, upload_internal};
+use crate::config::ConfigValue;
 use crate::parser::FileEntry;
 
 const APP_ID: &str = "org.distore.Distore";
@@ -58,10 +61,11 @@ fn build_ui(app: &Application) {
     container.set_margin_end(margin);
 
     let (token, channel) = commands::get_config_internal(true, None).unwrap();
-    let http = Arc::new(Http::new(token.inner()));
+    let (token, channel) = (Rc::new(RefCell::new(token)), Rc::new(RefCell::new(channel)));
+    let http = Arc::new(Http::new(token.borrow().inner()));
 
     let components = async_std::task::block_on(commands::list_internal(
-        channel.inner().parse().unwrap(),
+        channel.borrow().inner().parse().unwrap(),
         &http,
     ))
     .unwrap();
@@ -102,9 +106,80 @@ fn build_ui(app: &Application) {
     let download_btn = Button::builder().label("Download").build();
     let upload_btn = Button::builder().label("Upload").build();
     let delete_btn = Button::builder().label("Delete").build();
+    let settings_btn = Button::builder().label("Settings").build();
     button_box.append(&download_btn);
     button_box.append(&upload_btn);
     button_box.append(&delete_btn);
+    button_box.append(&settings_btn);
+
+    let top_settings_panel = Rc::new(Box::new(Orientation::Vertical, 0));
+
+    let settings_panel = Rc::new(Box::new(Orientation::Vertical, 25));
+    settings_panel.set_margin_end(margin);
+    settings_panel.set_margin_top(margin);
+    settings_panel.set_margin_bottom(margin);
+    settings_panel.set_margin_start(margin);
+
+    let token_box = Rc::new(Box::new(Orientation::Horizontal, 10));
+    token_box.append(&Label::new(Some("Token")));
+    let token_entry = Rc::new(Entry::new());
+    token_entry.set_hexpand(true);
+    token_box.append(&*token_entry);
+
+    let channel_box = Rc::new(Box::new(Orientation::Horizontal, 10));
+    channel_box.append(&Label::new(Some("Channel ID")));
+    let channel_entry = Rc::new(Entry::new());
+    channel_box.append(&*channel_entry);
+
+    settings_panel.append(&*token_box);
+    settings_panel.append(&*channel_box);
+
+    let settings_buttons = Rc::new(Box::new(Orientation::Horizontal, 10));
+    settings_buttons.set_margin_bottom(20);
+    settings_buttons.set_margin_end(20);
+    settings_buttons.set_halign(Align::End);
+
+    let apply_button = Button::builder().label("Apply").build();
+    let exit_button = Button::builder().label("Exit").build();
+
+    let token_entry_ = token_entry.clone();
+    let channel_entry_ = channel_entry.clone();
+    let token_ = token.clone();
+    let channel_ = channel.clone();
+    apply_button.connect_clicked(move |_| {
+        token_.replace(ConfigValue::Token(token_entry_.text().to_string()));
+        channel_.replace(ConfigValue::Channel(channel_entry_.text().to_string()));
+        commands::config(true, "token".into(), token_entry_.text().to_string(), None).unwrap();
+        commands::config(
+            true,
+            "channel".into(),
+            channel_entry_.text().to_string(),
+            None,
+        )
+        .unwrap();
+    });
+
+    let window_clone = window.clone();
+    let parent_clone = parent_box.clone();
+    exit_button.connect_clicked(move |_| {
+        window_clone.set_child(Some(&*parent_clone));
+    });
+
+    settings_buttons.append(&apply_button);
+    settings_buttons.append(&exit_button);
+
+    top_settings_panel.append(&*settings_panel);
+    top_settings_panel.append(&*settings_buttons);
+
+    let window_clone = window.clone();
+    let settings_panel_ = top_settings_panel.clone();
+    let channel_ = channel.clone();
+    let token_ = token.clone();
+    settings_btn.connect_clicked(move |_| {
+        token_entry.set_text(token_.borrow().inner());
+        channel_entry.set_text(channel_.borrow().inner());
+        window_clone.set_child(Some(&*settings_panel_));
+    });
 
     let list_box_clone = list_box.clone();
     let progress_box_clone = progress_box.clone();
@@ -183,18 +258,14 @@ fn build_ui(app: &Application) {
 
                             let (sender, receiver) = mpsc::channel();
 
-                            let http = Http::new(token_.inner());
-                            let channel_ = channel_.clone();
+                            let http = Http::new(token_.borrow().inner());
+                            let channel_ = channel_.borrow().inner().to_owned();
                             tokio::spawn(async move {
-                                let res = delete_internal(
-                                    &http,
-                                    id,
-                                    channel_.inner().parse().unwrap(),
-                                    || {
+                                let res =
+                                    delete_internal(&http, id, channel_.parse().unwrap(), || {
                                         sender.send((Some(()), None)).unwrap();
-                                    },
-                                )
-                                .await;
+                                    })
+                                    .await;
 
                                 sender.send((None, Some(res))).unwrap();
                             });
@@ -313,21 +384,17 @@ fn build_ui(app: &Application) {
                     let http_ = http_clone.clone();
                     let file_ = file.clone();
                     let id_ = id.clone();
-                    let channel_ = channel_clone.clone();
+                    let channel_ = channel_clone.borrow().inner().to_owned();
                     tokio::spawn(async move {
-                        let res = upload_internal(
-                            &http_,
-                            path,
-                            channel_.inner().parse().unwrap(),
-                            |s, f| {
+                        let res =
+                            upload_internal(&http_, path, channel_.parse().unwrap(), |s, f| {
                                 sender.send((Some((s, f)), None)).unwrap();
-                            },
-                        )
-                        .await;
+                            })
+                            .await;
 
                         match res {
                             Ok(v) => {
-                                let content = ChannelId::new(channel_.inner().parse().unwrap())
+                                let content = ChannelId::new(channel_.parse().unwrap())
                                     .message(&http_, v[0].id)
                                     .await
                                     .unwrap()
@@ -475,24 +542,28 @@ fn build_ui(app: &Application) {
 
                 let path = Arc::new(Mutex::new(PathBuf::new()));
 
-                let channel = channel_.clone();
-                let token = token_.clone();
+                let channel = channel_.borrow().inner().to_owned();
+                let token = token_.borrow().inner().to_owned();
                 let window_clone_ = window_clone.clone();
                 let p = path.clone();
 
                 let (sender, receiver) = mpsc::channel();
                 tokio::task::spawn(async move {
                     let sender_ = sender.clone();
-                    let result = download_internal(
-                        &Http::new(token.inner()),
-                        id,
-                        channel.inner().parse().unwrap(),
-                        None,
-                        move |fraction| {
+                    let channel = match channel.parse() {
+                        Ok(v) => v,
+                        Err(_) => {
+                            sender
+                                .send((None, Some(anyhow!("Invalid Channel ID"))))
+                                .unwrap();
+                            return;
+                        }
+                    };
+                    let result =
+                        download_internal(&Http::new(&token), id, channel, None, move |fraction| {
                             sender_.send((Some(fraction), None)).unwrap();
-                        },
-                    )
-                    .await;
+                        })
+                        .await;
 
                     match result {
                         Ok(r) => {
