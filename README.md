@@ -5,6 +5,12 @@ Utility to use Discord as cloud storage.
 
 ## Installation
 
+### Windows
+
+Download the [latest release](https://github.com/obvMellow/distore/releases/latest), unzip and run the executable.
+
+### Building from source
+
 First, make sure you have cargo installed.
 ```sh
 cargo --version
