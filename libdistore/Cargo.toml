@@ -1,6 +1,6 @@
 [package]
 name = "libdistore"
-version = "0.2.1"
+version = "0.3.0"
 description = "Library for Distore"
 authors = ["Deniz Demir <darkenedMellow@protonmail.com>"]
 license = "GPL-3.0-or-later"
@@ -19,7 +19,12 @@ indicatif-log-bridge = "0.2.3"
 lazy_static = "1.5.0"
 log = "0.4.22"
 rust-ini = "0.21.1"
-serenity = { version = "0.12.2", default-features = false, features = ["client", "gateway", "rustls_backend", "model"] }
+serenity = { version = "0.12.2", default-features = false, features = [
+    "client",
+    "gateway",
+    "rustls_backend",
+    "model",
+] }
 thiserror = "1.0.63"
 semver = "1.0.23"
 reqwest = { version = "0.12.7", features = ["json"] }
