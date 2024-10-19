@@ -64,11 +64,105 @@ fn build_ui(app: &Application) {
     let (token, channel) = (Rc::new(RefCell::new(token)), Rc::new(RefCell::new(channel)));
     let http = Arc::new(Http::new(token.borrow().inner()));
 
-    let components = async_std::task::block_on(commands::list_internal(
+    let top_settings_panel = Rc::new(Box::new(Orientation::Vertical, 0));
+
+    let settings_panel = Rc::new(Box::new(Orientation::Vertical, 25));
+    settings_panel.set_margin_end(margin);
+    settings_panel.set_margin_top(margin);
+    settings_panel.set_margin_bottom(margin);
+    settings_panel.set_margin_start(margin);
+
+    let token_box = Rc::new(Box::new(Orientation::Horizontal, 10));
+    token_box.append(&Label::new(Some("Token")));
+    let token_entry = Rc::new(Entry::new());
+    token_entry.set_hexpand(true);
+    token_box.append(&*token_entry);
+
+    let channel_box = Rc::new(Box::new(Orientation::Horizontal, 10));
+    channel_box.append(&Label::new(Some("Channel ID")));
+    let channel_entry = Rc::new(Entry::new());
+    channel_entry.connect_changed(|entry| {
+        let e = entry.text().parse::<u64>();
+
+        if let Err(e) = e {
+            match e.kind() {
+                std::num::IntErrorKind::PosOverflow => {
+                    entry.set_text(&format!("{}", u64::MAX));
+                }
+                std::num::IntErrorKind::NegOverflow => {
+                    entry.set_text(&format!("{}", u64::MIN));
+                }
+                std::num::IntErrorKind::InvalidDigit => {
+                    let t: Vec<char> = entry.text().chars().collect();
+                    let mut new = t.clone();
+
+                    for (i, x) in t.iter().enumerate() {
+                        if let Err(_) = x.to_string().parse::<u64>() {
+                            new.remove(i);
+                        }
+                    }
+
+                    entry.set_text(&new.into_iter().collect::<String>());
+                }
+                _ => {}
+            }
+        }
+    });
+    channel_box.append(&*channel_entry);
+
+    token_entry.set_text(token.borrow().inner());
+    channel_entry.set_text(channel.borrow().inner());
+
+    settings_panel.append(&*token_box);
+    settings_panel.append(&*channel_box);
+
+    top_settings_panel.append(&*settings_panel);
+
+    let components = match async_std::task::block_on(commands::list_internal(
         channel.borrow().inner().parse().unwrap(),
         &http,
-    ))
-    .unwrap();
+    )) {
+        Ok(v) => v,
+        Err(e) => {
+            window.set_child(Some(&*top_settings_panel));
+
+            let retry_btn = Button::builder().label("Retry").build();
+
+            top_settings_panel.append(&retry_btn);
+
+            let token_entry_ = token_entry.clone();
+            let channel_entry_ = channel_entry.clone();
+            let token_ = token.clone();
+            let channel_ = channel.clone();
+            let app = app.clone();
+            let window_ = window.clone();
+            retry_btn.connect_clicked(move |_| {
+                token_.replace(ConfigValue::Token(token_entry_.text().to_string()));
+                channel_.replace(ConfigValue::Channel(channel_entry_.text().to_string()));
+                commands::config(true, "token".into(), token_entry_.text().to_string(), None)
+                    .unwrap();
+                commands::config(
+                    true,
+                    "channel".into(),
+                    channel_entry_.text().to_string(),
+                    None,
+                )
+                .unwrap();
+
+                window_.destroy();
+
+                build_ui(&app);
+            });
+
+            window.present();
+            AlertDialog::builder()
+                .message("Couldn't fetch messages")
+                .detail(format!("Failed to fetch messages from Discord: {}", e))
+                .build()
+                .show(Some(&*window));
+            return;
+        }
+    };
 
     for (file, id) in components {
         let row = ListBoxRow::new();
@@ -112,28 +206,6 @@ fn build_ui(app: &Application) {
     button_box.append(&delete_btn);
     button_box.append(&settings_btn);
 
-    let top_settings_panel = Rc::new(Box::new(Orientation::Vertical, 0));
-
-    let settings_panel = Rc::new(Box::new(Orientation::Vertical, 25));
-    settings_panel.set_margin_end(margin);
-    settings_panel.set_margin_top(margin);
-    settings_panel.set_margin_bottom(margin);
-    settings_panel.set_margin_start(margin);
-
-    let token_box = Rc::new(Box::new(Orientation::Horizontal, 10));
-    token_box.append(&Label::new(Some("Token")));
-    let token_entry = Rc::new(Entry::new());
-    token_entry.set_hexpand(true);
-    token_box.append(&*token_entry);
-
-    let channel_box = Rc::new(Box::new(Orientation::Horizontal, 10));
-    channel_box.append(&Label::new(Some("Channel ID")));
-    let channel_entry = Rc::new(Entry::new());
-    channel_box.append(&*channel_entry);
-
-    settings_panel.append(&*token_box);
-    settings_panel.append(&*channel_box);
-
     let settings_buttons = Rc::new(Box::new(Orientation::Horizontal, 10));
     settings_buttons.set_margin_bottom(20);
     settings_buttons.set_margin_end(20);
@@ -168,7 +240,6 @@ fn build_ui(app: &Application) {
     settings_buttons.append(&apply_button);
     settings_buttons.append(&exit_button);
 
-    top_settings_panel.append(&*settings_panel);
     top_settings_panel.append(&*settings_buttons);
 
     let window_clone = window.clone();
