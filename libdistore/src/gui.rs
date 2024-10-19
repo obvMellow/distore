@@ -60,7 +60,10 @@ fn build_ui(app: &Application) {
     container.set_margin_start(margin);
     container.set_margin_end(margin);
 
-    let (token, channel) = commands::get_config_internal(true, None).unwrap();
+    let (token, channel) = commands::get_config_internal(true, None).unwrap_or((
+        ConfigValue::Token("---------------------------".to_string()),
+        ConfigValue::Channel("0000000000001".to_string()),
+    ));
     let (token, channel) = (Rc::new(RefCell::new(token)), Rc::new(RefCell::new(channel)));
     let http = Arc::new(Http::new(token.borrow().inner()));
 
@@ -154,10 +157,18 @@ fn build_ui(app: &Application) {
                 build_ui(&app);
             });
 
+            let mut alert_msg = "Couldn't fetch messages";
+            let mut alert_detail = format!("Failed to fetch messages from Discord: {}", e);
+            if token.borrow().inner() == "---------------------------"
+                && channel.borrow().inner() == "0000000000001"
+            {
+                alert_msg = "Config not set";
+                alert_detail = "Please set your token and channel ID".to_string();
+            }
             window.present();
             AlertDialog::builder()
-                .message("Couldn't fetch messages")
-                .detail(format!("Failed to fetch messages from Discord: {}", e))
+                .message(alert_msg)
+                .detail(&alert_detail)
                 .build()
                 .show(Some(&*window));
             return;
